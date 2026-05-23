@@ -1,0 +1,5 @@
+status,model,wordsim353_spearman,wordsim353_pairs,wordsim353_coverage,simlex999_spearman,simlex999_pairs,simlex999_coverage,analogy_accuracy,analogy_correct,analogy_total,reason
+ok,Skip-Gram (ours),-0.015088022266334022,276.0,0.7818696883852692,-0.03230997519311821,734.0,0.7347347347347347,0.00040966816878328555,3.0,7323.0,
+ok,FastText (ours),0.02312816450036333,320.0,0.9065155807365439,0.0202624987131596,892.0,0.8928928928928929,0.002767357481089724,45.0,16261.0,
+skipped,FastText (official),,,,,,,,,,missing optional model file
+skipped,GloVe 300d,,,,,,,,,,missing optional model file

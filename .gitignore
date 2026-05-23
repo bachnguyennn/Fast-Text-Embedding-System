@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.Python
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data (large — downloaded or generated locally)
+data/raw/text8
+data/raw/text8.zip
+data/raw/questions-words.txt
+data/processed/corpus_tokens.txt
+data/processed/vocab.pkl
+data/processed/vocab.json
+
+# Models (large — train locally or use notebook)
+models/*.pt
+models/*.vec
+models/*.bin
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Stray paths from running notebook in wrong directory
+notebook/data/

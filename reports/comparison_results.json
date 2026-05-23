@@ -1,0 +1,38 @@
+[
+  {
+    "status": "ok",
+    "model": "Skip-Gram (ours)",
+    "wordsim353_spearman": -0.015088022266334022,
+    "wordsim353_pairs": 276,
+    "wordsim353_coverage": 0.7818696883852692,
+    "simlex999_spearman": -0.03230997519311821,
+    "simlex999_pairs": 734,
+    "simlex999_coverage": 0.7347347347347347,
+    "analogy_accuracy": 0.00040966816878328555,
+    "analogy_correct": 3,
+    "analogy_total": 7323
+  },
+  {
+    "status": "ok",
+    "model": "FastText (ours)",
+    "wordsim353_spearman": 0.02312816450036333,
+    "wordsim353_pairs": 320,
+    "wordsim353_coverage": 0.9065155807365439,
+    "simlex999_spearman": 0.0202624987131596,
+    "simlex999_pairs": 892,
+    "simlex999_coverage": 0.8928928928928929,
+    "analogy_accuracy": 0.002767357481089724,
+    "analogy_correct": 45,
+    "analogy_total": 16261
+  },
+  {
+    "status": "skipped",
+    "model": "FastText (official)",
+    "reason": "missing optional model file"
+  },
+  {
+    "status": "skipped",
+    "model": "GloVe 300d",
+    "reason": "missing optional model file"
+  }
+]

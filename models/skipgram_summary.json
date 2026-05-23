@@ -1,0 +1,22 @@
+{
+  "model_type": "skipgram",
+  "tokens": 300000,
+  "vocab_size": 6112,
+  "subword_vocab_size": 45155,
+  "pairs": 50000,
+  "oov_rate": 0.09817666666666666,
+  "history": [
+    {
+      "epoch": 1,
+      "loss": 5.046639789123924,
+      "lr": 0.003,
+      "seconds": 18.261027812957764
+    },
+    {
+      "epoch": 2,
+      "loss": 3.3447800509783687,
+      "lr": 0.003,
+      "seconds": 17.940603256225586
+    }
+  ]
+}
