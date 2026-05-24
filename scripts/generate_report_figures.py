@@ -78,8 +78,9 @@ def plot_nearest_neighbors() -> None:
     from src.utils import load_embeddings_vec, most_similar
 
     queries = ["king", "queen", "man", "woman", "computer", "beautiful", "science", "running"]
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    axes = axes.flatten()
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
 
     for ax, model_name in zip(axes, ["skipgram", "fasttext"]):
         path = ROOT / "models" / f"{model_name}_final.vec"
@@ -95,16 +96,29 @@ def plot_nearest_neighbors() -> None:
                 nn = ", ".join(f"{w}({s:.2f})" for w, s in neighbors)
             else:
                 nn = "OOV"
-            lines.append(f"{q}: {nn}")
+            lines.append(f"{q:12} → {nn}")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
         ax.axis("off")
-        ax.set_title(f"{model_name.title()} — nearest neighbors", fontweight="bold")
-        ax.text(0.02, 0.98, "\n".join(lines), va="top", fontsize=9, family="monospace")
+        label = "Skip-Gram (ours)" if model_name == "skipgram" else "FastText (ours)"
+        ax.set_title(label, fontweight="bold", fontsize=12, pad=12)
+        ax.text(
+            0.04,
+            0.96,
+            "\n".join(lines),
+            va="top",
+            ha="left",
+            fontsize=9.5,
+            family="monospace",
+            transform=ax.transAxes,
+            bbox=dict(boxstyle="round,pad=0.6", facecolor="#f8f9fa", edgecolor="#dee2e6"),
+        )
 
-    plt.suptitle("Qualitative Nearest-Neighbor Comparison", fontsize=14, fontweight="bold")
-    plt.tight_layout()
+    fig.suptitle("Qualitative Nearest-Neighbor Comparison (cosine similarity)", fontsize=14, fontweight="bold", y=1.02)
+    fig.tight_layout()
     out = FIGURES / "nearest_neighbors.png"
-    plt.savefig(out, dpi=150)
-    plt.close()
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
     print(f"Saved {out}")
 
 
