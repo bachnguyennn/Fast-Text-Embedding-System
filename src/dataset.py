@@ -85,6 +85,33 @@ class SkipGramDataset(Dataset):
         }
 
 
+def _sample_negatives_batch(
+    center_ids: np.ndarray,
+    context_ids: np.ndarray,
+    vocab: Vocabulary,
+    num_negatives: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    batch_size = center_ids.shape[0]
+    negatives = rng.choice(
+        vocab.vocab_size,
+        size=(batch_size, num_negatives),
+        replace=True,
+        p=vocab.negative_sampling_probs,
+    ).astype(np.int64)
+    for col in range(num_negatives):
+        bad = (negatives[:, col] == center_ids) | (negatives[:, col] == context_ids)
+        while bad.any():
+            negatives[bad, col] = rng.choice(
+                vocab.vocab_size,
+                size=int(bad.sum()),
+                replace=True,
+                p=vocab.negative_sampling_probs,
+            )
+            bad = (negatives[:, col] == center_ids) | (negatives[:, col] == context_ids)
+    return negatives
+
+
 def collate_skipgram_batch(batch: List[dict]) -> dict:
     """Pad subword indices and stack tensors for DataLoader."""
     max_subwords = max(len(item["center_subwords"]) for item in batch)
@@ -114,6 +141,43 @@ def collate_skipgram_batch(batch: List[dict]) -> dict:
     }
 
 
+def collate_skipgram_batch_fast(batch: List[dict], vocab: Vocabulary) -> dict:
+    """Vectorized collation using precomputed subword cache."""
+    center_ids_np = np.asarray([item["center_id"] for item in batch], dtype=np.int64)
+    context_ids_np = np.asarray([item["context_id"] for item in batch], dtype=np.int64)
+    rng = np.random.default_rng()
+    negatives_np = _sample_negatives_batch(
+        center_ids_np, context_ids_np, vocab, batch[0]["num_negatives"], rng
+    )
+
+    center_ids = torch.from_numpy(center_ids_np)
+    context_ids = torch.from_numpy(context_ids_np)
+    negatives = torch.from_numpy(negatives_np)
+
+    if vocab.subword_cache is not None and vocab.subword_lengths is not None:
+        sw = vocab.subword_cache[center_ids_np]
+        lengths = vocab.subword_lengths[center_ids_np]
+        max_len = int(lengths.max()) if len(lengths) else 1
+        max_len = max(max_len, 1)
+        subword_ids = torch.from_numpy(sw[:, :max_len].copy())
+        subword_mask = torch.zeros((len(batch), max_len), dtype=torch.bool)
+        for row, length in enumerate(lengths):
+            if length > 0:
+                subword_mask[row, :length] = True
+            else:
+                subword_mask[row, 0] = True
+    else:
+        return collate_skipgram_batch(batch)
+
+    return {
+        "center_ids": center_ids,
+        "context_ids": context_ids,
+        "negatives": negatives,
+        "subword_ids": subword_ids,
+        "subword_mask": subword_mask,
+    }
+
+
 def build_skipgram_dataset(
     tokens: Sequence[str],
     vocab: Vocabulary,
@@ -123,8 +187,18 @@ def build_skipgram_dataset(
     seed: int = 42,
     streaming: bool = False,
     samples_per_epoch: int | None = None,
-) -> Union[SkipGramDataset, "StreamingSkipGramDataset"]:
+    fast: bool = True,
+) -> Union[SkipGramDataset, "StreamingSkipGramDataset", "FastCorpusSkipGramDataset"]:
     token_ids = vocab.encode_corpus(tokens)
+    if fast:
+        return FastCorpusSkipGramDataset(
+            token_ids=token_ids,
+            vocab=vocab,
+            window_size=window_size,
+            num_negatives=num_negatives,
+            samples_per_epoch=samples_per_epoch,
+            seed=seed,
+        )
     if streaming:
         return StreamingSkipGramDataset(
             token_ids=token_ids,
@@ -223,3 +297,73 @@ class StreamingSkipGramDataset(Dataset):
             }
 
         return self.__getitem__(0)
+
+
+class FastCorpusSkipGramDataset(Dataset):
+    """
+    One sample per corpus position per epoch (word2vec-style), with O(1) __getitem__.
+
+    Avoids Python retry loops in StreamingSkipGramDataset; negatives sampled in collate.
+    """
+
+    def __init__(
+        self,
+        token_ids: Sequence[int],
+        vocab: Vocabulary,
+        window_size: int = 5,
+        num_negatives: int = 10,
+        samples_per_epoch: int | None = None,
+        seed: int = 42,
+    ) -> None:
+        self.token_ids = np.asarray(token_ids, dtype=np.int32)
+        self.vocab = vocab
+        self.window_size = window_size
+        self.num_negatives = num_negatives
+        self.samples_per_epoch = int(samples_per_epoch or len(self.token_ids))
+        self.rng = np.random.default_rng(seed)
+        self._epoch_seed = seed
+        self._positions = np.arange(self.samples_per_epoch, dtype=np.int64)
+        self._offsets = self._draw_offsets(self.samples_per_epoch)
+        self._reshuffle_epoch()
+
+        if len(self.token_ids) == 0:
+            raise ValueError("token_ids is empty.")
+        self._pad = vocab.pad_idx
+        self._unk = vocab.unk_idx
+
+    def _draw_offsets(self, n: int) -> np.ndarray:
+        offsets = self.rng.integers(1, self.window_size + 1, size=n, dtype=np.int32)
+        signs = self.rng.integers(0, 2, size=n, dtype=np.int32) * 2 - 1
+        return offsets * signs
+
+    def _reshuffle_epoch(self) -> None:
+        corpus_len = len(self.token_ids)
+        self._positions = self.rng.integers(0, corpus_len, size=self.samples_per_epoch, dtype=np.int64)
+        self._offsets = self._draw_offsets(self.samples_per_epoch)
+
+    def set_epoch(self, epoch: int) -> None:
+        self.rng = np.random.default_rng(self._epoch_seed + epoch)
+        self._reshuffle_epoch()
+
+    def __len__(self) -> int:
+        return self.samples_per_epoch
+
+    def __getitem__(self, index: int) -> dict:
+        pos = int(self._positions[index])
+        offset = int(self._offsets[index])
+        center_id = int(self.token_ids[pos])
+        context_pos = pos + offset
+        if context_pos < 0 or context_pos >= len(self.token_ids):
+            context_pos = max(0, min(len(self.token_ids) - 1, context_pos))
+        context_id = int(self.token_ids[context_pos])
+
+        if center_id in {self._pad, self._unk}:
+            center_id = self._unk
+        if context_id in {self._pad, self._unk}:
+            context_id = self._unk
+
+        return {
+            "center_id": center_id,
+            "context_id": context_id,
+            "num_negatives": self.num_negatives,
+        }

@@ -32,6 +32,9 @@ class Vocabulary:
     word_freq: Counter = field(default_factory=Counter)
     word_ngrams: Dict[int, List[int]] = field(default_factory=dict)
     negative_sampling_probs: Optional[np.ndarray] = None
+    subword_cache: Optional[np.ndarray] = None
+    subword_lengths: Optional[np.ndarray] = None
+    max_subword_len: int = 1
 
     @property
     def vocab_size(self) -> int:
@@ -56,6 +59,7 @@ class Vocabulary:
         self._build_subword_vocab()
         self._build_word_ngram_indices()
         self._build_negative_sampling_distribution()
+        self._build_subword_cache()
 
     def _build_word_vocab(self) -> None:
         self.word2idx = {PAD_TOKEN: 0, UNK_TOKEN: 1}
@@ -110,6 +114,22 @@ class Vocabulary:
 
     def encode_corpus(self, tokens: Sequence[str]) -> List[int]:
         return [self.word_to_idx(token) for token in tokens]
+
+    def _build_subword_cache(self) -> None:
+        """Dense [vocab_size, max_ngrams] table for fast batch collation."""
+        max_len = max((len(ngrams) for ngrams in self.word_ngrams.values()), default=1)
+        max_len = max(max_len, 1)
+        cache = np.zeros((self.vocab_size, max_len), dtype=np.int32)
+        lengths = np.zeros(self.vocab_size, dtype=np.int32)
+        for word_idx, ngrams in self.word_ngrams.items():
+            if not ngrams:
+                continue
+            length = len(ngrams)
+            lengths[word_idx] = length
+            cache[word_idx, :length] = np.asarray(ngrams, dtype=np.int32)
+        self.subword_cache = cache
+        self.subword_lengths = lengths
+        self.max_subword_len = max_len
 
     def get_subword_indices(self, word_idx: int) -> List[int]:
         return self.word_ngrams.get(word_idx, [])
