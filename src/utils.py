@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import random
 import urllib.request
 import zipfile
+from collections import Counter
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
@@ -47,6 +49,33 @@ def load_corpus(path: str | Path, max_tokens: int | None = None) -> List[str]:
     if max_tokens is not None:
         tokens = tokens[:max_tokens]
     return tokens
+
+
+def subsample_corpus(
+    tokens: Sequence[str],
+    word_freq: Counter | None = None,
+    threshold: float = 1e-5,
+    seed: int = 42,
+) -> List[str]:
+    """
+    Word2vec-style subsampling of frequent tokens.
+
+    Each token is kept with probability min(1, sqrt(threshold / f(w))).
+    """
+    if word_freq is None:
+        word_freq = Counter(tokens)
+    total = sum(word_freq.values())
+    if total == 0:
+        return list(tokens)
+
+    rng = random.Random(seed)
+    kept: List[str] = []
+    for token in tokens:
+        freq = word_freq[token] / total
+        keep_prob = min(1.0, math.sqrt(threshold / freq)) if freq > 0 else 1.0
+        if rng.random() < keep_prob:
+            kept.append(token)
+    return kept
 
 
 def preprocess_and_save_corpus(

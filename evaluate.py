@@ -26,6 +26,7 @@ def main() -> None:
         fasttext_vec=args.fasttext_vec,
         official_fasttext=args.official_fasttext,
         glove_vec=args.glove_vec,
+        use_gensim_hub=True,
         output_dir=args.output_dir,
     )
     print_results_table(results)

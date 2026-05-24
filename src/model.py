@@ -103,29 +103,37 @@ class FastTextModel(SkipGramModel):
         counts = subword_mask.sum(dim=1, keepdim=True).clamp(min=1).float()
         return word_vec + subword_sum / counts
 
-    def get_word_vectors(self, vocab) -> torch.Tensor:
+    def get_word_vectors(self, vocab, batch_size: int = 512) -> torch.Tensor:
         """
         Compose full FastText vectors for all vocabulary words.
 
         For in-vocabulary words this matches training-time input vectors.
+        Exported in batches to avoid OOM when vocab is large (MPS/GPU).
         """
         device = self.input_embeddings.weight.device
-        word_ids = torch.arange(self.vocab_size, device=device)
-        subword_lists = [vocab.get_subword_indices(int(idx)) for idx in word_ids.tolist()]
+        subword_lists = [vocab.get_subword_indices(idx) for idx in range(self.vocab_size)]
         max_len = max((len(items) for items in subword_lists), default=1)
         max_len = max(max_len, 1)
 
-        subword_ids = torch.zeros((self.vocab_size, max_len), dtype=torch.long, device=device)
-        subword_mask = torch.zeros((self.vocab_size, max_len), dtype=torch.bool, device=device)
-        for row, ngrams in enumerate(subword_lists):
-            if not ngrams:
-                subword_mask[row, 0] = True
-                continue
-            length = len(ngrams)
-            subword_ids[row, :length] = torch.tensor(ngrams, dtype=torch.long, device=device)
-            subword_mask[row, :length] = True
+        outputs: list[torch.Tensor] = []
+        for start in range(0, self.vocab_size, batch_size):
+            end = min(start + batch_size, self.vocab_size)
+            chunk = end - start
+            word_ids = torch.arange(start, end, device=device)
 
-        return self.get_input_vector(word_ids, subword_ids, subword_mask).detach()
+            subword_ids = torch.zeros((chunk, max_len), dtype=torch.long, device=device)
+            subword_mask = torch.zeros((chunk, max_len), dtype=torch.bool, device=device)
+            for row, ngrams in enumerate(subword_lists[start:end]):
+                if not ngrams:
+                    subword_mask[row, 0] = True
+                    continue
+                length = len(ngrams)
+                subword_ids[row, :length] = torch.tensor(ngrams, dtype=torch.long, device=device)
+                subword_mask[row, :length] = True
+
+            outputs.append(self.get_input_vector(word_ids, subword_ids, subword_mask).detach())
+
+        return torch.cat(outputs, dim=0)
 
 
 def build_model(

@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.dataset import SkipGramDataset, collate_skipgram_batch
+from src.dataset import SkipGramDataset, StreamingSkipGramDataset, collate_skipgram_batch
 from src.model import FastTextModel, SkipGramModel, build_model
 from src.utils import save_embeddings_vec, set_seed
 
@@ -33,6 +33,7 @@ class TrainConfig:
     seed: int = 42
     checkpoint_dir: str = "models"
     log_every: int = 100
+    save_epoch_checkpoints: bool = False
 
 
 @dataclass
@@ -52,7 +53,13 @@ class Trainer:
         device: torch.device | None = None,
     ) -> "Trainer":
         set_seed(config.seed)
-        device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if device is None:
+            if torch.cuda.is_available():
+                device = torch.device("cuda")
+            elif torch.backends.mps.is_available():
+                device = torch.device("mps")
+            else:
+                device = torch.device("cpu")
         model = build_model(
             model_type=config.model_type,  # type: ignore[arg-type]
             vocab_size=vocab.vocab_size,
@@ -94,7 +101,7 @@ class Trainer:
 
         return total_loss / max(num_batches, 1)
 
-    def fit(self, dataset: SkipGramDataset, vocab) -> List[Dict[str, float]]:
+    def fit(self, dataset: SkipGramDataset | StreamingSkipGramDataset, vocab) -> List[Dict[str, float]]:
         dataloader = DataLoader(
             dataset,
             batch_size=self.config.batch_size,
@@ -125,8 +132,9 @@ class Trainer:
                 f"loss={avg_loss:.4f} | lr={record['lr']:.6f} | time={elapsed:.1f}s"
             )
 
-            checkpoint_path = checkpoint_dir / f"{self.config.model_type}_epoch_{epoch + 1}.pt"
-            self.save_checkpoint(checkpoint_path, vocab)
+            if self.config.save_epoch_checkpoints:
+                checkpoint_path = checkpoint_dir / f"{self.config.model_type}_epoch_{epoch + 1}.pt"
+                self.save_checkpoint(checkpoint_path, vocab)
 
             if avg_loss < best_loss:
                 best_loss = avg_loss
@@ -137,14 +145,19 @@ class Trainer:
         self.save_history(checkpoint_dir / f"{self.config.model_type}_history.json")
         return self.history
 
-    def export_embeddings(self, vocab, output_path: str | Path) -> None:
+    def export_embeddings(self, vocab, output_path: str | Path, export_batch_size: int = 512) -> None:
         self.model.eval()
+        export_device = torch.device("cpu")
+        self.model.to(export_device)
+        if self.device.type == "mps":
+            torch.mps.empty_cache()
         with torch.no_grad():
             if isinstance(self.model, FastTextModel):
-                vectors = self.model.get_word_vectors(vocab).cpu()
+                vectors = self.model.get_word_vectors(vocab, batch_size=export_batch_size)
             else:
-                vectors = self.model.get_word_vectors().cpu()
+                vectors = self.model.get_word_vectors()
         save_embeddings_vec(vocab, vectors, output_path)
+        self.model.to(self.device)
 
     def save_checkpoint(self, path: str | Path, vocab) -> None:
         path = Path(path)

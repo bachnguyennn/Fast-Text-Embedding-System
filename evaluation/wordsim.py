@@ -19,6 +19,7 @@ class EmbeddingLookup:
     word2idx: Dict[str, int]
     vectors: np.ndarray
     subword_vectors: Dict[str, np.ndarray] | None = None
+    gensim_model: object | None = None
 
     @classmethod
     def from_vec(cls, path: str | Path) -> "EmbeddingLookup":
@@ -27,13 +28,20 @@ class EmbeddingLookup:
 
     @classmethod
     def from_gensim(cls, model) -> "EmbeddingLookup":
-        words = list(model.key_to_index.keys())
-        word2idx = {word: idx for idx, word in enumerate(words)}
-        vectors = np.vstack([model.get_vector(word) for word in words]).astype(np.float32)
-        return cls(word2idx=word2idx, vectors=vectors)
+        dim = int(getattr(model, "vector_size", 300))
+        return cls(
+            word2idx={},
+            vectors=np.zeros((0, dim), dtype=np.float32),
+            gensim_model=model,
+        )
 
     def vector(self, word: str, use_subwords: bool = False) -> np.ndarray | None:
         word = word.lower()
+        if self.gensim_model is not None:
+            try:
+                return self.gensim_model.get_vector(word)
+            except (KeyError, ValueError):
+                return None
         if word in self.word2idx:
             return self.vectors[self.word2idx[word]]
         if not use_subwords:

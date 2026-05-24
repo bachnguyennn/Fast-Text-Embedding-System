@@ -4,13 +4,13 @@
 
 **Repository:** [github.com/bachnguyennn/Fast-Text-Embedding-System](https://github.com/bachnguyennn/Fast-Text-Embedding-System)
 
-A from-scratch **PyTorch** implementation of Skip-Gram with Negative Sampling and **FastText subword n-grams**, trained on the [text8](http://mattmahoney.net/dc/text8.zip) corpus. The project compares a plain Skip-Gram baseline against FastText on the same data and benchmarks, and optionally against official pre-trained embeddings.
+A from-scratch **PyTorch** implementation of Skip-Gram with Negative Sampling and **FastText subword n-grams**, trained on the [text8](http://mattmahoney.net/dc/text8.zip) corpus (~17M tokens). The project compares a plain Skip-Gram baseline against FastText on the same data, and benchmarks both against **official pre-trained FastText** and **GloVe 300d** via Gensim.
 
 ## Motivation
 
 Word embeddings map tokens to dense vectors that capture semantic similarity. Classic Skip-Gram (Word2Vec) learns one vector per word, which fails on rare or out-of-vocabulary (OOV) tokens. **FastText** extends Skip-Gram by representing each word as the sum of its word vector and its character n-gram vectors (typically 3–6 characters). That makes embeddings more robust to morphology, typos, and unseen words.
 
-This repository implements the full pipeline—tokenization, vocabulary, negative sampling, training, intrinsic evaluation, and visualization—so the effect of subword information can be measured directly.
+This repository implements the full pipeline—tokenization, vocabulary, subsampling, negative sampling, streaming training, intrinsic evaluation, and visualization—so the effect of subword information can be measured directly.
 
 ## Architecture
 
@@ -24,133 +24,133 @@ Skip-Gram + Negative Sampling:
   maximize log σ(v_center · v_context) + Σ log σ(-v_center · v_negative)
 ```
 
-Two embedding tables are maintained:
-
-- **Input side**: word vector (+ subword vectors for FastText)
-- **Output side**: context word vectors for negative sampling
-
 ## Project Structure
 
 ```
 fasttext_embeddings_from_scratch/
-├── data/raw/                  # text8 corpus
-├── data/processed/            # cleaned tokens + vocabulary
-├── src/                       # tokenizer, vocab, dataset, model, trainer, utils
-├── evaluation/                # WordSim, analogy, comparison
-├── notebook/                  # full analysis notebook (recommended entry point)
-├── reports/                   # comparison_results.csv, figures/
-├── models/                    # checkpoints and .vec exports
-├── train.py                   # CLI training
-├── evaluate.py                # CLI benchmarks
-└── visualize.py               # t-SNE plots
+├── src/                       # tokenizer, vocab, dataset, model, trainer
+├── evaluation/                # WordSim, analogy, 4-model comparison
+├── scripts/
+│   ├── train_portfolio_models.py   # 300d, 10 epochs, full text8
+│   ├── export_checkpoint.py        # recover .vec after training (OOM-safe)
+│   ├── download_baselines.py
+│   ├── generate_report_figures.py
+│   └── post_train_pipeline.sh      # evaluate + figures after training
+├── notebook/                  # interactive report
+├── reports/figures/           # README visuals
+├── models/                    # .vec exports (gitignored)
+├── train.py / evaluate.py / visualize.py
+└── README.md
 ```
-
-## What is not in Git
-
-Large artifacts are **gitignored** and produced locally:
-
-- `data/raw/text8` — downloaded automatically (~95 MB)
-- `data/processed/` token files and `vocab.pkl`
-- `models/*.vec`, `models/*.pt` — trained checkpoints
-
-Benchmark outputs in `reports/comparison_results.csv` **are** included so results are visible without retraining.
 
 ## Quick Start
 
-### Clone
+### Clone & environment
 
 ```bash
 git clone https://github.com/bachnguyennn/Fast-Text-Embedding-System.git
 cd Fast-Text-Embedding-System
-```
-
-### Notebook (recommended)
-
-```bash
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+```
+
+### Portfolio training (recommended)
+
+Full-quality training uses **300 dimensions**, **10 epochs**, **full text8** with Word2vec subsampling and streaming skip-gram pairs (no token/pair caps):
+
+```bash
+# ~20+ hours on Apple MPS (~60 min/epoch); run overnight with caffeinate
+caffeinate -dims nohup python scripts/train_portfolio_models.py > logs/train_portfolio.log 2>&1 &
+
+# After training finishes:
+bash scripts/post_train_pipeline.sh
+```
+
+If export hits MPS OOM at the end of FastText training, recover without retraining:
+
+```bash
+python scripts/export_checkpoint.py --checkpoint models/fasttext_best.pt
+```
+
+Configurable via CLI:
+
+```bash
+python train.py --model-type fasttext --epochs 10 --embedding-dim 300 --streaming --subsample
+```
+
+### Baselines & evaluation
+
+```bash
+python scripts/download_baselines.py   # caches gensim models
+python evaluate.py                     # all 4 models → reports/comparison_results.csv
+python scripts/generate_report_figures.py
+```
+
+### Notebook
+
+```bash
 jupyter notebook notebook/fasttext_from_scratch_report.ipynb
 ```
 
-Use the project venv as the Jupyter kernel. Run **Kernel → Restart & Run All**. Training takes ~25–35 minutes with default notebook settings; evaluation (Section 5) takes ~1–3 minutes.
+For a quick demo in the notebook, use `MAX_TOKENS = 1_000_000`. For portfolio parity, prefer `scripts/train_portfolio_models.py`.
 
-### Command line
-
-```bash
-source venv/bin/activate
-
-# Train both models (adjust flags as needed)
-python train.py --model-type skipgram --epochs 5
-python train.py --model-type fasttext --epochs 5
-
-# Benchmarks + comparison chart
-python evaluate.py
-
-# t-SNE visualization
-python visualize.py --vec-path models/fasttext_final.vec
-```
-
-Quick smoke test:
-
-```bash
-python train.py --model-type fasttext --epochs 2 --max-tokens 500000 --max-pairs 100000
-```
-
-## Training Configuration (notebook run)
+## Training Configuration (portfolio)
 
 | Setting | Value |
 |---------|-------|
-| Corpus | text8 (1M tokens sampled) |
-| Training pairs | 150,000 (capped) |
-| Epochs | 3 |
-| Embedding dim | 100 |
-| Window size | 5 |
-| Negative samples | 10 |
-| Optimizer | Adam (lr=0.003) + ReduceLROnPlateau |
-| Word vocab | 13,968 |
-| Subword vocab | 87,725 |
-| OOV rate (on 1M tokens) | 6.19% |
+| Corpus | Full text8 (17,005,279 raw tokens) |
+| Subsampling | Word2vec (threshold 1e-5) → ~4.98M tokens/epoch |
+| Epochs | **10** (configurable via `--epochs`) |
+| Embedding dim | **300** |
+| Window | 5 |
+| Negative samples | 15 |
+| Batch size | 1024 |
+| Optimizer | Adam (lr=0.0025) + ReduceLROnPlateau |
+| Pair generation | Streaming (on-the-fly, no RAM blow-up) |
+| Word vocab | 71,292 | Subword vocab | 333,222 |
 
-**Training loss (converged):**
-
-| Model | Epoch 1 | Epoch 3 |
-|-------|---------|---------|
-| Skip-Gram | 4.51 | 3.04 |
-| FastText | 3.91 | 2.98 |
+**Final training loss (epoch 10):** Skip-Gram 3.05 · FastText 3.12
 
 ## Results
 
-Intrinsic evaluation on WordSim-353, SimLex-999, and Google analogy questions. Results are saved to `reports/comparison_results.csv` after evaluation.
+Intrinsic evaluation on **WordSim-353**, **SimLex-999**, and **Google analogy** questions. All custom models trained on full subsampled text8 at **300d × 10 epochs**. Official baselines: Gensim `fasttext-wiki-news-subwords-300` and `glove-wiki-gigaword-300`.
 
-| Model | WordSim-353 ρ | SimLex-999 ρ | Analogy acc. | WordSim coverage |
-|-------|---------------|--------------|--------------|------------------|
-| **Skip-Gram (ours)** | -0.02 | -0.03 | 0.04% (3 / 7,323) | 78% |
-| **FastText (ours)** | **0.02** | **0.02** | **0.28%** (45 / 16,261) | **91%** |
-| FastText official 300d | ~0.75 | ~0.40 | ~75% | ~100% |
-| GloVe 300d (optional) | ~0.60 | ~0.37 | ~70% | ~100% |
+| Model | WordSim-353 ρ | SimLex-999 ρ | Analogy accuracy | WordSim coverage |
+|-------|---------------|--------------|------------------|------------------|
+| **Skip-Gram (ours)** | **0.60** | 0.20 | 8.3% (1,506 / 18,104) | 99.4% |
+| **FastText (ours)** | 0.56 | 0.17 | **11.3%** (2,207 / 19,544) | **100%** |
+| FastText (official, 300d) | **0.70** | **0.44** | **71.3%** (11,293 / 15,845) | 100% |
+| GloVe 300d | 0.61 | 0.37 | 71.7% (14,020 / 19,544) | 100% |
 
-Official baselines were not included in the run above (pretrained files not downloaded). See below to add them.
+Raw metrics: [`reports/comparison_results.csv`](reports/comparison_results.csv)
 
-### Qualitative examples (FastText, 100d)
+### Benchmark comparison
 
-| Query | Nearest neighbors |
-|-------|-------------------|
-| `computer` | compute, computed, launched, pseudo, dos |
-| `science` | sci, mathematicians, frequencies, advance |
-| `king` | jersey, origins, commander, kingdom, founded |
+![Bar chart comparing WordSim-353, SimLex-999, and analogy accuracy across all four embedding models](reports/figures/comparison_barplot.png)
 
-Morphological neighbors (`computer` → `compute`) show subword learning; classic semantic pairs (`king` → `queen`) require more data and dimensions than this run used.
+### Training loss
 
-### Optional: official baselines
+![Training loss curves for Skip-Gram and FastText over 10 epochs on full text8](reports/figures/training_loss_curves.png)
 
-Download pretrained vectors into `models/` and re-run evaluation:
+### Embedding space (t-SNE)
 
-- [FastText English 300d](https://fasttext.cc/docs/en/english-vectors.html) → `models/cc.en.300.vec`
-- [GloVe 6B 300d](https://nlp.stanford.edu/projects/glove/) → `models/glove.6B.300d.txt`
+![t-SNE projection of Skip-Gram word vectors (300d)](reports/figures/tsne_skipgram.png)
 
-```bash
-python evaluate.py
-```
+![t-SNE projection of FastText word vectors with subword composition (300d)](reports/figures/tsne_fasttext.png)
+
+### Nearest neighbors (qualitative)
+
+![Nearest neighbors for king, queen, computer, beautiful, and related query words for Skip-Gram vs FastText](reports/figures/nearest_neighbors.png)
+
+After full 300d training, both models produce sensible semantic and morphological neighbors (see figure above). FastText tends to link inflected forms (`computer` → `compute`, `computing`) via character n-grams.
+
+## Key Insights
+
+1. **Full-corpus training matters**: Moving from a 100d pilot (1M tokens, 3 epochs) to **300d × 10 epochs on full text8** raised WordSim ρ from ~0.02 to **~0.56–0.60**—approaching GloVe (0.61) on the same benchmarks, though still below official FastText (0.70).
+2. **FastText wins on coverage and analogies**: At equal training setup, FastText reaches **100% WordSim coverage** and **11.3% analogy accuracy** vs Skip-Gram’s 99.4% / 8.3%, because subword n-grams supply vectors for rare and OOV-like forms.
+3. **Skip-Gram can edge WordSim on in-vocab pairs**: Our Skip-Gram slightly beats our FastText on WordSim-353 (0.60 vs 0.56), likely because subword averaging smooths word vectors; FastText’s advantage shows up in coverage and analogy volume.
+4. **Official models still dominate analogies**: Wikipedia + news Crawl pre-training yields **~71% analogy accuracy** vs **~11%** for from-scratch text8—data scale dominates for relational reasoning.
+5. **Engineering lessons**: Streaming pairs + subsampling fit full text8 in RAM; batched CPU export avoids MPS OOM when writing 71k composed FastText vectors.
 
 ## Implementation Highlights
 
@@ -158,46 +158,18 @@ python evaluate.py
 |-----------|---------|
 | Tokenizer | Lowercasing, punctuation removal, FastText 3–6 char n-grams with `<` `>` boundaries |
 | Vocabulary | Min frequency = 5, `<UNK>` / `<PAD>`, unigram^0.75 negative sampling |
-| Dataset | Window size 5, 10 negatives per positive pair |
+| Training | Streaming skip-gram dataset, Word2vec subsampling |
 | Models | `SkipGramModel`, `FastTextModel` (word + mean subword on input) |
-| Export | Word2vec-compatible `.vec` format |
+| Evaluation | Vectorized analogy for custom `.vec`; Gensim `most_similar` for official models |
+| Export | Word2vec-compatible `.vec`; batched CPU export for large vocabs |
 
-## Key Insights
+## What is not in Git
 
-1. **FastText improves coverage**: On the same training setup, FastText evaluated more WordSim pairs (91% vs 78%) and more analogy questions (16,261 vs 7,323) because subword n-grams provide vectors for OOV/rare forms.
-2. **FastText wins on every reported metric** vs our Skip-Gram baseline, though absolute Spearman scores remain near zero with 1M tokens, 100 dimensions, and 3 epochs.
-3. **Subwords capture morphology**: Neighbors like `compute` / `computed` for `computer` and `sci` for `science` demonstrate character-level generalization.
-4. **Corpus scale dominates quality**: text8 is ~17M tokens; official FastText uses Wikipedia + Common Crawl at 300d. Expect a large gap until training on more data and dimensions.
-5. **Negative sampling scales training**: A small number of negative draws per positive pair makes Skip-Gram practical on CPU.
-
-## Limitations
-
-- Subset of text8 (1M tokens) and capped training pairs (150k), not the full corpus
-- 100-dimensional embeddings (benchmarks often use 300d)
-- Low intrinsic scores and analogy accuracy vs published Word2Vec / FastText models
-- Intrinsic evaluation only (no downstream classification or NER tasks)
-- Official FastText / GloVe comparison optional and not run by default
-
-## Improving Results
-
-To push metrics closer to published benchmarks:
-
-1. Train on **full text8** (`MAX_TOKENS = None`) with **5–10 epochs**
-2. Use **`EMBEDDING_DIM = 300`**
-3. Remove or raise the **`MAX_PAIRS`** cap
-4. Add official **`cc.en.300.vec`** for comparison in the report
+Large artifacts are **gitignored**: `data/raw/text8`, `models/*.vec`, `models/*.pt`, `venv/`. Benchmark CSV/JSON, training histories, and `reports/figures/*.png` are included for portfolio visibility.
 
 ## Notebook
 
-The main deliverable is [`notebook/fasttext_from_scratch_report.ipynb`](notebook/fasttext_from_scratch_report.ipynb):
-
-1. Corpus EDA and Zipf plot  
-2. Subword n-gram analysis  
-3. Skip-Gram + FastText training (with skip-if-trained option)  
-4. Nearest-neighbor inspection  
-5. Benchmark comparison  
-6. t-SNE visualization  
-7. Error analysis and research value  
+[`notebook/fasttext_from_scratch_report.ipynb`](notebook/fasttext_from_scratch_report.ipynb) — EDA, training, neighbors, benchmarks, t-SNE, error analysis.
 
 ## License
 

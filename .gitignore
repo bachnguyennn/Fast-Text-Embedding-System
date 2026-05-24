@@ -44,6 +44,7 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
 
 # Stray paths from running notebook in wrong directory
 notebook/data/

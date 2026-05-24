@@ -18,6 +18,7 @@ class AnalogyLookup:
     word2idx: Dict[str, int]
     vectors: np.ndarray
     use_subwords: bool = False
+    gensim_model: object | None = None
     _words: List[str] = field(default_factory=list, repr=False)
     _norm_vectors: np.ndarray | None = field(default=None, repr=False)
 
@@ -37,13 +38,22 @@ class AnalogyLookup:
 
     @classmethod
     def from_gensim(cls, model, use_subwords: bool = False) -> "AnalogyLookup":
-        words = list(model.key_to_index.keys())
-        word2idx = {word: idx for idx, word in enumerate(words)}
-        vectors = np.vstack([model.get_vector(word) for word in words]).astype(np.float32)
-        return cls(word2idx=word2idx, vectors=vectors, use_subwords=use_subwords)
+        # Keep only a gensim handle — avoid materializing 400k–1M vectors for analogy search.
+        dim = int(getattr(model, "vector_size", 300))
+        return cls(
+            word2idx={},
+            vectors=np.zeros((0, dim), dtype=np.float32),
+            use_subwords=use_subwords,
+            gensim_model=model,
+        )
 
     def _vector(self, word: str) -> np.ndarray | None:
         word = word.lower()
+        if self.gensim_model is not None:
+            try:
+                return self.gensim_model.get_vector(word)
+            except (KeyError, ValueError):
+                return None
         if word in self.word2idx:
             return self.vectors[self.word2idx[word]]
         if not self.use_subwords:
@@ -55,6 +65,20 @@ class AnalogyLookup:
         return np.mean(ngram_vecs, axis=0)
 
     def analogy(self, a: str, b: str, c: str, exclude: Iterable[str] = ()) -> str | None:
+        excluded = {token.lower() for token in exclude}
+        if self.gensim_model is not None and hasattr(self.gensim_model, "most_similar"):
+            try:
+                candidates = self.gensim_model.most_similar(
+                    positive=[c, b],
+                    negative=[a],
+                    topn=10,
+                )
+                for word, _score in candidates:
+                    if word.lower() not in excluded:
+                        return word.lower()
+            except (KeyError, ValueError):
+                return None
+
         vec_a = self._vector(a)
         vec_b = self._vector(b)
         vec_c = self._vector(c)
@@ -70,7 +94,6 @@ class AnalogyLookup:
         assert self._norm_vectors is not None
         scores = self._norm_vectors @ target
 
-        excluded = {token.lower() for token in exclude}
         best_word = None
         best_score = -1e9
         for idx, word in enumerate(self._words):
@@ -119,13 +142,42 @@ def load_google_analogy_questions(path: str | Path | None = None) -> List[Tuple[
     return questions
 
 
-def evaluate_analogies(
+def _evaluate_analogies_gensim(
     lookup: AnalogyLookup,
-    questions: List[Tuple[str, str, str, str, str]] | None = None,
+    questions: List[Tuple[str, str, str, str, str]],
 ) -> Dict[str, float | int]:
-    if questions is None:
-        questions = load_google_analogy_questions()
+    total = 0
+    correct = 0
+    section_totals: Dict[str, int] = {}
+    section_correct: Dict[str, int] = {}
 
+    for section, a, b, c, expected in tqdm(questions, desc="Google analogies (gensim)"):
+        prediction = lookup.analogy(a, b, c, exclude=(a, b, c))
+        if prediction is None:
+            continue
+        total += 1
+        section_totals[section] = section_totals.get(section, 0) + 1
+        if prediction == expected:
+            correct += 1
+            section_correct[section] = section_correct.get(section, 0) + 1
+
+    accuracy = correct / max(total, 1)
+    section_accuracy = {
+        section: section_correct.get(section, 0) / max(section_totals[section], 1)
+        for section in section_totals
+    }
+    return {
+        "total_questions": total,
+        "correct": correct,
+        "accuracy": accuracy,
+        "section_accuracy": section_accuracy,
+    }
+
+
+def _evaluate_analogies_matrix(
+    lookup: AnalogyLookup,
+    questions: List[Tuple[str, str, str, str, str]],
+) -> Dict[str, float | int]:
     assert lookup._norm_vectors is not None
     norm_matrix = lookup._norm_vectors
     words = lookup._words
@@ -181,3 +233,15 @@ def evaluate_analogies(
         "accuracy": accuracy,
         "section_accuracy": section_accuracy,
     }
+
+
+def evaluate_analogies(
+    lookup: AnalogyLookup,
+    questions: List[Tuple[str, str, str, str, str]] | None = None,
+) -> Dict[str, float | int]:
+    if questions is None:
+        questions = load_google_analogy_questions()
+
+    if lookup.gensim_model is not None:
+        return _evaluate_analogies_gensim(lookup, questions)
+    return _evaluate_analogies_matrix(lookup, questions)

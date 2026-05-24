@@ -2,37 +2,53 @@
   {
     "status": "ok",
     "model": "Skip-Gram (ours)",
-    "wordsim353_spearman": -0.015088022266334022,
-    "wordsim353_pairs": 276,
-    "wordsim353_coverage": 0.7818696883852692,
-    "simlex999_spearman": -0.03230997519311821,
-    "simlex999_pairs": 734,
-    "simlex999_coverage": 0.7347347347347347,
-    "analogy_accuracy": 0.00040966816878328555,
-    "analogy_correct": 3,
-    "analogy_total": 7323
+    "wordsim353_spearman": 0.5994558405776748,
+    "wordsim353_pairs": 351,
+    "wordsim353_coverage": 0.9943342776203966,
+    "simlex999_spearman": 0.19704131852205062,
+    "simlex999_pairs": 992,
+    "simlex999_coverage": 0.992992992992993,
+    "analogy_accuracy": 0.08318603623508616,
+    "analogy_correct": 1506,
+    "analogy_total": 18104
   },
   {
     "status": "ok",
     "model": "FastText (ours)",
-    "wordsim353_spearman": 0.02312816450036333,
-    "wordsim353_pairs": 320,
-    "wordsim353_coverage": 0.9065155807365439,
-    "simlex999_spearman": 0.0202624987131596,
-    "simlex999_pairs": 892,
-    "simlex999_coverage": 0.8928928928928929,
-    "analogy_accuracy": 0.002767357481089724,
-    "analogy_correct": 45,
-    "analogy_total": 16261
+    "wordsim353_spearman": 0.5645201388310235,
+    "wordsim353_pairs": 353,
+    "wordsim353_coverage": 1.0,
+    "simlex999_spearman": 0.17395937654434276,
+    "simlex999_pairs": 999,
+    "simlex999_coverage": 1.0,
+    "analogy_accuracy": 0.11292468276708964,
+    "analogy_correct": 2207,
+    "analogy_total": 19544
   },
   {
-    "status": "skipped",
+    "status": "ok",
     "model": "FastText (official)",
-    "reason": "missing optional model file"
+    "wordsim353_spearman": 0.6971897408681883,
+    "wordsim353_pairs": 353,
+    "wordsim353_coverage": 1.0,
+    "simlex999_spearman": 0.44090807476822663,
+    "simlex999_pairs": 999,
+    "simlex999_coverage": 1.0,
+    "analogy_accuracy": 0.7127169454086463,
+    "analogy_correct": 11293,
+    "analogy_total": 15845
   },
   {
-    "status": "skipped",
+    "status": "ok",
     "model": "GloVe 300d",
-    "reason": "missing optional model file"
+    "wordsim353_spearman": 0.6085349998820805,
+    "wordsim353_pairs": 353,
+    "wordsim353_coverage": 1.0,
+    "simlex999_spearman": 0.37050035710869067,
+    "simlex999_pairs": 999,
+    "simlex999_coverage": 1.0,
+    "analogy_accuracy": 0.7173557101923864,
+    "analogy_correct": 14020,
+    "analogy_total": 19544
   }
 ]

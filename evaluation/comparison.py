@@ -21,6 +21,7 @@ class ModelSpec:
     name: str
     vec_path: str | None = None
     gensim_path: str | None = None
+    gensim_name: str | None = None
     use_subwords: bool = False
     optional: bool = False
 
@@ -34,10 +35,20 @@ def _load_gensim_model(path: str):
     return KeyedVectors.load_word2vec_format(str(path_obj), binary=False)
 
 
+def _load_gensim_by_name(name: str):
+    import gensim.downloader as api
+
+    return api.load(name)
+
+
 def evaluate_model(spec: ModelSpec) -> Dict[str, float | int | dict]:
     if spec.vec_path and Path(spec.vec_path).exists():
         wordsim_lookup = EmbeddingLookup.from_vec(spec.vec_path)
         analogy_lookup = AnalogyLookup.from_vec(spec.vec_path, use_subwords=spec.use_subwords)
+    elif spec.gensim_name:
+        model = _load_gensim_by_name(spec.gensim_name)
+        wordsim_lookup = EmbeddingLookup.from_gensim(model)
+        analogy_lookup = AnalogyLookup.from_gensim(model, use_subwords=spec.use_subwords)
     elif spec.gensim_path and Path(spec.gensim_path).exists():
         model = _load_gensim_model(spec.gensim_path)
         wordsim_lookup = EmbeddingLookup.from_gensim(model)
@@ -64,6 +75,7 @@ def run_full_comparison(
     fasttext_vec: str = "models/fasttext_final.vec",
     official_fasttext: str | None = "models/cc.en.300.vec",
     glove_vec: str | None = "models/glove.6B.300d.txt",
+    use_gensim_hub: bool = True,
     output_dir: str = "reports",
 ) -> pd.DataFrame:
     set_seed(42)
@@ -75,14 +87,36 @@ def run_full_comparison(
     specs = [
         ModelSpec(name="Skip-Gram (ours)", vec_path=skipgram_vec, use_subwords=False),
         ModelSpec(name="FastText (ours)", vec_path=fasttext_vec, use_subwords=True),
-        ModelSpec(
-            name="FastText (official)",
-            gensim_path=official_fasttext,
-            use_subwords=True,
-            optional=True,
-        ),
-        ModelSpec(name="GloVe 300d", gensim_path=glove_vec, use_subwords=False, optional=True),
     ]
+    if use_gensim_hub:
+        specs.extend(
+            [
+                ModelSpec(
+                    name="FastText (official)",
+                    gensim_name="fasttext-wiki-news-subwords-300",
+                    use_subwords=True,
+                    optional=True,
+                ),
+                ModelSpec(
+                    name="GloVe 300d",
+                    gensim_name="glove-wiki-gigaword-300",
+                    use_subwords=False,
+                    optional=True,
+                ),
+            ]
+        )
+    else:
+        specs.extend(
+            [
+                ModelSpec(
+                    name="FastText (official)",
+                    gensim_path=official_fasttext,
+                    use_subwords=True,
+                    optional=True,
+                ),
+                ModelSpec(name="GloVe 300d", gensim_path=glove_vec, use_subwords=False, optional=True),
+            ]
+        )
 
     rows: List[Dict[str, float | int | str]] = []
     for spec in specs:
